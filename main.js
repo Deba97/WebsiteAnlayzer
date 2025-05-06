@@ -57,8 +57,11 @@ async function scrapeBusinesses(category, location, qualityThreshold = 60, maxBu
   console.log(`Will collect up to ${maxBusinesses} businesses with a website quality score below ${qualityThreshold}`);
   
   const businesses = [];
+  const businessesWithoutWebsites = [];
   // Track processed websites to avoid duplicates
   const processedWebsites = new Set();
+  // Track processed businesses to avoid revisiting after scroll
+  const processedBusinessNames = new Set();
   
   const browser = await puppeteer.launch({ 
     headless: false, // Show browser for visual confirmation
@@ -119,33 +122,21 @@ async function scrapeBusinesses(category, location, qualityThreshold = 60, maxBu
           
           const name = await page.evaluate(el => el.textContent, nameElement);
           
+          // Skip if we've already processed this business
+          if (processedBusinessNames.has(name)) {
+            console.log(`${name} - Already processed, skipping...`);
+            continue;
+          }
+          
+          // Add to processed businesses
+          processedBusinessNames.add(name);
+          
           // Click on the listing to show details
           await nameElement.click();
           await waitFor(3000);
           
           // Get website URL from the business details panel
           const websiteElement = await page.$('a[data-item-id="authority"]');
-          if (!websiteElement) {
-            console.log(`${name} - No website found, skipping...`);
-            // Go back to the list
-            await page.keyboard.press('Escape');
-            await waitFor(1000);
-            continue;
-          }
-          
-          const websiteUrl = await page.evaluate(el => el.href, websiteElement);
-          
-          // Check if we've already processed this website
-          if (processedWebsites.has(websiteUrl)) {
-            console.log(`${name} - Already evaluated website ${websiteUrl}, skipping...`);
-            // Go back to the list
-            await page.keyboard.press('Escape');
-            await waitFor(1000);
-            continue;
-          }
-          
-          // Add to processed websites
-          processedWebsites.add(websiteUrl);
           
           // Get phone number from the business details panel
           let phoneNumber = '';
@@ -169,6 +160,39 @@ async function scrapeBusinesses(category, location, qualityThreshold = 60, maxBu
           if (addressElement) {
             address = await page.evaluate(el => el.textContent, addressElement);
           }
+          
+          // Check if business has a website
+          if (!websiteElement) {
+            console.log(`${name} - No website found, adding to no-website list`);
+            // Add to no-website businesses list
+            businessesWithoutWebsites.push({
+              name,
+              category,
+              location,
+              address,
+              phoneNumber,
+              rating
+            });
+            
+            // Go back to the list
+            await page.keyboard.press('Escape');
+            await waitFor(1000);
+            continue;
+          }
+          
+          const websiteUrl = await page.evaluate(el => el.href, websiteElement);
+          
+          // Check if we've already processed this website
+          if (processedWebsites.has(websiteUrl)) {
+            console.log(`${name} - Already evaluated website ${websiteUrl}, skipping...`);
+            // Go back to the list
+            await page.keyboard.press('Escape');
+            await waitFor(1000);
+            continue;
+          }
+          
+          // Add to processed websites
+          processedWebsites.add(websiteUrl);
           
           console.log(`Evaluating website for: ${name} (${websiteUrl})`);
           
@@ -289,31 +313,40 @@ async function scrapeBusinesses(category, location, qualityThreshold = 60, maxBu
   }
   
   console.log(`Collected ${businesses.length} businesses with website quality below threshold`);
-  return businesses;
+  console.log(`Collected ${businessesWithoutWebsites.length} businesses without websites`);
+  return { businesses, businessesWithoutWebsites };
 }
 
 // Function to write businesses to CSV
-async function writeToCSV(businesses, category, location) {
+async function writeToCSV(businesses, category, location, suffix = 'prospects') {
   if (businesses.length === 0) {
-    console.log('No businesses to write to CSV');
+    console.log(`No businesses to write to CSV for ${suffix}`);
     return;
   }
   
-  const filename = `${category.replace(/\\s+/g, '-')}_${location.replace(/\\s+/g, '-')}_prospects.csv`;
+  const filename = `${category.replace(/\\s+/g, '-')}_${location.replace(/\\s+/g, '-')}_${suffix}.csv`;
   
-  const csvWriter = createCsvWriter({
-    path: filename,
-    header: [
-      { id: 'name', title: 'Business Name' },
-      { id: 'category', title: 'Category' },
-      { id: 'location', title: 'Location' },
-      { id: 'address', title: 'Address' },
-      { id: 'phoneNumber', title: 'Phone Number' },
-      { id: 'rating', title: 'Rating' },
+  const headers = [
+    { id: 'name', title: 'Business Name' },
+    { id: 'category', title: 'Category' },
+    { id: 'location', title: 'Location' },
+    { id: 'address', title: 'Address' },
+    { id: 'phoneNumber', title: 'Phone Number' },
+    { id: 'rating', title: 'Rating' }
+  ];
+  
+  // Add website-specific headers if not writing no-website businesses
+  if (suffix !== 'no-website') {
+    headers.push(
       { id: 'websiteUrl', title: 'Website URL' },
       { id: 'websiteScore', title: 'Website Score' },
       { id: 'issues', title: 'Issues' }
-    ]
+    );
+  }
+  
+  const csvWriter = createCsvWriter({
+    path: filename,
+    header: headers
   });
   
   await csvWriter.writeRecords(businesses);
@@ -359,15 +392,26 @@ async function main() {
   console.log(`Website quality threshold: ${QUALITY_THRESHOLD}`);
   console.log(`Maximum businesses to collect: ${MAX_BUSINESSES}`);
   
-  const businesses = await scrapeBusinesses(target.category, target.location, QUALITY_THRESHOLD, MAX_BUSINESSES);
+  const { businesses, businessesWithoutWebsites } = await scrapeBusinesses(target.category, target.location, QUALITY_THRESHOLD, MAX_BUSINESSES);
   
+  // Write businesses with poor websites to CSV
   if (businesses.length > 0) {
-    const csvFilename = await writeToCSV(businesses, target.category, target.location);
+    const csvFilename = await writeToCSV(businesses, target.category, target.location, 'prospects');
     console.log(`\nFound ${businesses.length} businesses with website score below ${QUALITY_THRESHOLD}.`);
     console.log(`Results saved to: ${csvFilename}`);
-    console.log('You can now reach out to these businesses and offer your web design services!');
+    console.log('You can now reach out to these businesses and offer your web design improvement services!');
   } else {
-    console.log('\nNo businesses found matching the criteria. Try a different category or location.');
+    console.log('\nNo businesses found with poor website quality. Try a different category or location.');
+  }
+  
+  // Write businesses without websites to CSV
+  if (businessesWithoutWebsites.length > 0) {
+    const noWebsiteCsvFilename = await writeToCSV(businessesWithoutWebsites, target.category, target.location, 'no-website');
+    console.log(`\nFound ${businessesWithoutWebsites.length} businesses without websites.`);
+    console.log(`Results saved to: ${noWebsiteCsvFilename}`);
+    console.log('You can now reach out to these businesses and offer to build them a new website!');
+  } else {
+    console.log('\nNo businesses found without websites. Try a different category or location.');
   }
 }
 
