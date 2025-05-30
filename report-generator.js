@@ -185,7 +185,7 @@ class ReportGenerator {
           <a href="https://buy.stripe.com/28E5kE72pcQq4cKePX0oM01" class="button primary">Get Started Now</a>
         </div>
         <div class="consultation-link">
-          <p>Want to discuss your needs first? <a href="https://calendly.com/njobaseki97/30min">Schedule a free consultation</a></p>
+          <a href="https://calendly.com/njobaseki97/30min" class="button primary">Schedule a Free Consultation</a>
         </div>
       </div>
     `;
@@ -525,6 +525,16 @@ class ReportGenerator {
           }
           .service-card li {
             margin-bottom: 10px;
+          }
+          
+          /* Consultation link styling */
+          .consultation-link {
+            grid-column: 1 / -1;
+            text-align: center;
+            margin-top: 20px;
+            padding: 20px;
+            background: var(--light-bg);
+            border-radius: 8px;
           }
           
           /* Button styles */
