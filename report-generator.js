@@ -159,7 +159,7 @@ class ReportGenerator {
         <div class="service-card">
           <div class="service-badge">Most Popular</div>
           <h3>Website Redesign</h3>
-          <div class="price">$650</div>
+          <div class="price">$899</div>
           <div class="price-detail">One-Time</div>
           <ul>
             <li>Modern, responsive design</li>
