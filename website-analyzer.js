@@ -15,7 +15,7 @@ const processedBusinesses = new Set();
 
 // Quality threshold for generating reports
 const QUALITY_THRESHOLD = 70;
-const BATCH_SIZE = 5;  // Changed from 20 to 5 for testing
+const BATCH_SIZE = 20;  // Changed back to 20 for production use
 
 class WebsiteAnalyzer {
   constructor() {
