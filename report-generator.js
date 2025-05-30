@@ -168,7 +168,7 @@ class ReportGenerator {
             <li>Contact forms & lead capture</li>
             <li>Custom branding integration</li>
           </ul>
-          <a href="https://buy.stripe.com/fZu6oIfyV3fQ24CfU10oM00" class="button primary">Get Started Now</a>
+          <a href="https://buy.stripe.com/4gM8wQ1I56s2dNk23b0oM02" class="button primary">Get Started Now</a>
         </div>
         <div class="service-card premium">
           <div class="service-badge">Best Value</div>
@@ -183,6 +183,9 @@ class ReportGenerator {
             <li>Performance analytics</li>
           </ul>
           <a href="https://buy.stripe.com/28E5kE72pcQq4cKePX0oM01" class="button primary">Get Started Now</a>
+        </div>
+        <div class="consultation-link">
+          <p>Want to discuss your needs first? <a href="https://calendly.com/njobaseki97/30min">Schedule a free consultation</a></p>
         </div>
       </div>
     `;
@@ -606,10 +609,6 @@ class ReportGenerator {
             <h2>Our Services</h2>
             <p>Based on our analysis, here are the recommended services to improve your digital presence and generate more leads for your business:</p>
             ${servicesHtml}
-            
-            <div class="buttons-container">
-              <a href="https://calendly.com/njobaseki97/30min" class="button">Schedule a Free Consultation</a>
-            </div>
           </div>
           
           <div class="footer">
