@@ -6,6 +6,8 @@ const fs = require('fs').promises;
 const path = require('path');
 const { evaluateWebsite } = require('./website-evaluator');
 const ReportGenerator = require('./report-generator');
+const MarketAnalysis = require('./market-analysis');
+const BusinessContactTracker = require('./business-contact-tracker');
 
 // Helper functions from old code
 const waitFor = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -18,7 +20,8 @@ const QUALITY_THRESHOLD = 70;
 const BATCH_SIZE = 20;  // Changed back to 20 for production use
 
 class WebsiteAnalyzer {
-  constructor() {
+  constructor(searchQuery) {
+    this.searchQuery = searchQuery;
     this.browser = null;
     this.page = null;
     this.outputDir = path.join(process.cwd(), 'analysis_reports');
@@ -44,10 +47,22 @@ class WebsiteAnalyzer {
     
     // Create output directory if it doesn't exist
     await fs.mkdir(this.outputDir, { recursive: true });
+
+    // Initialize report generator
+    this.reportGenerator = new ReportGenerator(this.searchQuery);
+    await this.reportGenerator.initialize();
+
+    // Initialize contact tracker
+    this.contactTracker = new BusinessContactTracker(this.searchQuery);
+    await this.contactTracker.initialize();
   }
 
   async close() {
     if (this.browser) {
+      // Save all businesses to CSV before closing
+      if (this.allBusinesses.length > 0) {
+        await this.contactTracker.addBusinesses(this.allBusinesses);
+      }
       await this.browser.close();
       this.browser = null;
       this.page = null;
@@ -188,11 +203,14 @@ class WebsiteAnalyzer {
                 const business = {
                   ...details,
                   websiteScore: evaluation.score,
-                  issues: evaluation.issues || [],  // Keep as array and handle undefined
+                  issues: evaluation.issues || [],
                   screenshot: await this.captureScreenshot(details.websiteUrl)
                 };
 
                 this.allBusinesses.push(business);
+
+                // Add to CSV immediately after analysis
+                await this.contactTracker.addBusinesses([business]);
 
                 // Store low scoring businesses for later report generation
                 if (business.websiteScore <= QUALITY_THRESHOLD) {
@@ -425,41 +443,33 @@ class WebsiteAnalyzer {
   }
 
   async generateReport(business) {
-    const reportGenerator = new ReportGenerator();
+    const reportPath = await this.reportGenerator.generateReport(
+      business,
+      {
+        score: business.websiteScore,
+        issues: Array.isArray(business.issues) ? business.issues : [business.issues]
+      },
+      [...this.allBusinesses]
+        .filter(b => b.name !== business.name)
+        .sort((a, b) => b.websiteScore - a.websiteScore)
+        .slice(0, 3)
+        .map(comp => ({
+          url: comp.websiteUrl,
+          score: comp.websiteScore,
+          name: comp.name,
+          heroDataUrl: comp.screenshot ? `data:image/jpeg;base64,${comp.screenshot.toString('base64')}` : null
+        })),
+      business.screenshot ? `data:image/jpeg;base64,${business.screenshot.toString('base64')}` : null
+    );
     
-    // Get top 3 competitors (highest scoring businesses)
-    const competitors = [...this.allBusinesses]
-      .filter(b => b.name !== business.name)
-      .sort((a, b) => b.websiteScore - a.websiteScore)
-      .slice(0, 3)
-      .map(comp => ({
-        url: comp.websiteUrl,
-        score: comp.websiteScore,
-        name: comp.name,
-        heroDataUrl: comp.screenshot ? `data:image/jpeg;base64,${comp.screenshot.toString('base64')}` : null
-      }));
-
-    // Convert main business screenshot to data URL
-    const heroDataUrl = business.screenshot ? 
-      `data:image/jpeg;base64,${business.screenshot.toString('base64')}` : null;
-
-    // Safely handle issues whether they're undefined, string, or array
-    const issues = business.issues 
-      ? (Array.isArray(business.issues) 
-          ? business.issues 
-          : business.issues.split(';').map(issue => issue.trim()))
-      : ['No issues found'];
-
-    // Prepare website analysis data
-    const websiteAnalysis = {
-      score: business.websiteScore,
-      issues: issues
-    };
-
-    // Generate the report using the report generator
-    const { reportPath } = await reportGenerator.generateReport(business, websiteAnalysis, competitors, heroDataUrl);
+    // Update the business object with the report path
+    business.reportPath = reportPath.reportPath;
+    console.log(`Report generated for ${business.name}: ${business.reportPath}`);
     
-    console.log(`Report generated for ${business.name}: ${reportPath}`);
+    // Update CSV after each report generation
+    await this.contactTracker.addBusinesses([business]);
+    
+    return business.reportPath;
   }
 
   async generateReportsForLowScoring() {
@@ -475,7 +485,7 @@ class WebsiteAnalyzer {
 
 // Example usage
 async function main() {
-  const analyzer = new WebsiteAnalyzer();
+  const analyzer = new WebsiteAnalyzer(process.argv[2] || 'restaurants');
   
   try {
     await analyzer.initialize();

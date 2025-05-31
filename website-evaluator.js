@@ -287,63 +287,138 @@ async function evaluateWebsite(url) {
       // Helper function to check if an image URL is valid
       const isValidImageUrl = (url) => {
         if (!url) return false;
-        // Check if URL is relative
-        if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('data:')) {
+        if (url.startsWith('data:')) return true; // Data URLs are valid
+        // Handle relative URLs
+        if (!url.startsWith('http://') && !url.startsWith('https://')) {
           const a = document.createElement('a');
           a.href = url;
-          url = a.href; // Convert to absolute URL
+          url = a.href;
         }
         return url;
       };
 
-      // Wait a bit for images to load
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Wait longer for modern lazy-loading and CDNs
+      await new Promise(resolve => setTimeout(resolve, 5000));
 
-      // Get all images
-      const images = Array.from(document.querySelectorAll('img'));
       const brokenCount = {
         total: 0,
         reasons: []
       };
 
-      // Check each image
-      for (const img of images) {
-        const src = img.getAttribute('src');
-        
-        // Skip if no src
-        if (!src) {
-          brokenCount.total++;
-          brokenCount.reasons.push('Image missing src attribute');
-          continue;
-        }
-        
-        // Skip SVG images and data URLs as they don't have natural dimensions
-        if (src.toLowerCase().endsWith('.svg') || src.startsWith('data:')) {
-          continue;
-        }
-        
-        // Skip tracking pixels and tiny images
-        if (img.width <= 1 || img.height <= 1) {
-          continue;
-        }
-        
-        // Check if image failed to load
-        if (!img.complete) {
-          brokenCount.total++;
-          brokenCount.reasons.push(`Image failed to load: ${src}`);
-          continue;
-        }
+      // Get all images (including background images)
+      const images = Array.from(document.querySelectorAll('*')).filter(el => {
+        // Check if element has background image
+        const style = window.getComputedStyle(el);
+        const bgImage = style.backgroundImage;
+        return el.tagName === 'IMG' || (bgImage && bgImage !== 'none');
+      });
 
-        // Only check dimensions for images that should have them
-        if (img.naturalWidth === 0 || img.naturalHeight === 0) {
-          // Double check if it's really broken by creating a test image
-          const testImg = new Image();
-          testImg.src = src;
-          if (testImg.complete && testImg.naturalWidth > 0) {
-            continue; // Image is actually fine
+      for (const element of images) {
+        if (element.tagName === 'IMG') {
+          const img = element;
+          const src = img.getAttribute('src');
+          
+          // Skip if no src but has srcset (responsive images)
+          if (!src && img.getAttribute('srcset')) {
+            continue;
           }
-          brokenCount.total++;
-          brokenCount.reasons.push(`Image has no dimensions: ${src}`);
+
+          // Skip if no src but data-src exists (lazy loading)
+          if (!src && (img.getAttribute('data-src') || img.getAttribute('data-lazy-src'))) {
+            continue;
+          }
+          
+          // Skip if no src and no alternative sources
+          if (!src) {
+            brokenCount.total++;
+            brokenCount.reasons.push('Image missing src attribute and no alternative sources');
+            continue;
+          }
+
+          // Skip tracking pixels, spacers, and decorative tiny images
+          if ((img.width <= 3 && img.height <= 3) || src.includes('tracking') || src.includes('pixel')) {
+            continue;
+          }
+
+          // Handle special cases
+          if (src.startsWith('data:') || src.endsWith('.svg')) {
+            // Check if data URL or SVG is valid
+            if (src.startsWith('data:image/') || (src.endsWith('.svg') && img.complete)) {
+              continue;
+            }
+          }
+
+          // Check if image is still loading
+          if (!img.complete) {
+            // Wait a bit longer for this specific image
+            try {
+              await new Promise((resolve, reject) => {
+                img.addEventListener('load', resolve);
+                img.addEventListener('error', reject);
+                setTimeout(resolve, 3000); // Additional 3s timeout for this image
+              });
+            } catch (e) {
+              // Only count as broken if it actually failed to load
+              if (!img.complete || img.naturalWidth === 0) {
+                brokenCount.total++;
+                brokenCount.reasons.push(`Image failed to load: ${src}`);
+              }
+            }
+            continue;
+          }
+
+          // Check dimensions for loaded images
+          if (img.naturalWidth === 0 || img.naturalHeight === 0) {
+            // Double check with a test image
+            try {
+              const testImg = new Image();
+              await new Promise((resolve, reject) => {
+                testImg.onload = resolve;
+                testImg.onerror = reject;
+                testImg.src = src;
+                setTimeout(resolve, 3000);
+              });
+              
+              // If test image loads successfully, original might be lazy-loaded
+              if (testImg.naturalWidth > 0) {
+                continue;
+              }
+              
+              brokenCount.total++;
+              brokenCount.reasons.push(`Image has no dimensions: ${src}`);
+            } catch (e) {
+              // Only count if both checks fail
+              brokenCount.total++;
+              brokenCount.reasons.push(`Image failed secondary load check: ${src}`);
+            }
+          }
+        } else {
+          // Handle background images
+          const style = window.getComputedStyle(element);
+          const bgImage = style.backgroundImage;
+          
+          if (bgImage && bgImage !== 'none') {
+            // Extract URL from background-image
+            const url = bgImage.slice(4, -1).replace(/['"]/g, '');
+            
+            if (!url || url === 'about:blank') {
+              continue;
+            }
+
+            // Check if background image loads
+            try {
+              const testImg = new Image();
+              await new Promise((resolve, reject) => {
+                testImg.onload = resolve;
+                testImg.onerror = reject;
+                testImg.src = url;
+                setTimeout(resolve, 3000);
+              });
+            } catch (e) {
+              brokenCount.total++;
+              brokenCount.reasons.push(`Background image failed to load: ${url}`);
+            }
+          }
         }
       }
 
@@ -351,9 +426,11 @@ async function evaluateWebsite(url) {
     });
     
     if (brokenImages.total > 0) {
-      const uniqueReasons = [...new Set(brokenImages.reasons)];
-      issues.push(`${brokenImages.total} broken images create unprofessional appearance and hurt credibility`);
-      score -= Math.min(15, brokenImages.total * 3); // Cap the penalty at 15 points
+      // Only penalize if there's a significant number of broken images
+      if (brokenImages.total >= 3) {
+        issues.push(`${brokenImages.total} broken or unloaded images affect website appearance`);
+        score -= Math.min(10, brokenImages.total * 2); // Reduced penalty, capped at 10 points
+      }
     }
     
     // Calculate final score

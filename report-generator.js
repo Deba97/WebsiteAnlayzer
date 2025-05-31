@@ -2,8 +2,9 @@ const fs = require('fs').promises;
 const path = require('path');
 
 class ReportGenerator {
-  constructor() {
-    this.outputDir = path.join(process.cwd(), 'analysis_reports');
+  constructor(searchQuery) {
+    this.searchQuery = searchQuery ? searchQuery.replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'general';
+    this.outputDir = path.join(process.cwd(), 'analysis_reports', this.searchQuery);
   }
 
   async initialize() {

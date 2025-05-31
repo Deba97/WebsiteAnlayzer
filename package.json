@@ -9,8 +9,12 @@
     "analyze-scroll": "node scroll-analyzer.js"
   },
   "dependencies": {
-    "puppeteer": "^19.7.2",
+    "cheerio": "^1.0.0",
+    "chrome-launcher": "^1.2.0",
+    "csv-parser": "^3.2.0",
     "csv-writer": "^1.6.0",
-    "cheerio": "^1.0.0-rc.12"
+    "lighthouse": "^12.6.0",
+    "nodemailer": "^7.0.3",
+    "puppeteer": "^19.11.1"
   }
-} 
+}
